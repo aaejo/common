@@ -37,6 +37,7 @@ services:
     - './sql:/docker-entrypoint-initdb.d:ro'
     environment:
       MARIADB_ROOT_PASSWORD: 'root' # Super insecure, but this is just for dev use
+      MARIADB_DATABASE: 'jds'
 
   adminer:
     image: 'adminer:standalone'
