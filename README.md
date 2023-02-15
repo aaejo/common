@@ -10,7 +10,7 @@ The `src/` directory contains common Java code to be shared between project comp
 The library is published to a GitHub Packages repository associated with this repo. In order to install the package from here, the following steps must be taken:  
 
 0. **Install Maven.** This is a prerequisite for working on this project.  
-1. **Create a GitHub personal access token (classic).** It must have at least the `read:packages` permission, as well as `write:packages` if you want to publish new versions of this library. More information can be found (here)[https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token].  
+1. **Create a GitHub personal access token (classic).** It must have at least the `read:packages` permission, as well as `write:packages` if you want to publish new versions of this library. More information can be found [here](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token).  
 2. **Access your Maven settings file.** In your user home directory (any OS), find the file `.m2/settings.xml`. If you do not already have one, create one.  
 3. **Add the server, repo, and credentials to your Maven settings.** If your settings file is empty, copy the following into it, otherwise modify it as needed to add the necessary sections. Replace `YOUR_GITHUB_USER` with your GitHub username and `YOUR_GITHUB_TOKEN` with your personal access token from step 1.  
    ```xml
