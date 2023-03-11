@@ -3,7 +3,10 @@ Utilities and bits shared by multiple other repos
 
 ## Common Java Library
 
-The `src/` directory contains common Java code to be shared between project components. Any code that is added to it should be lightweight enough to be safe to add to all the components.  
+This repo contains common Java code to be shared between project components. It is split into multiple Maven modules, with the root `pom.xml` acting as the parent and build reactor. The modules are:
+
+- **`jds-common-client`**: A wrapper around Jsoup connection functionality optimized for our project's use case. It can be configured with retry logic using Spring Retry, and respects robots.txt rules including the Crawl-delay directive.
+- **`jds-common-messaging`**: Records for use in de/serialization of messages between system modules.
 
 ### Maven Setup
 

@@ -5,9 +5,10 @@
 	<modelVersion>4.0.0</modelVersion>
 
 	<groupId>io.github.aaejo</groupId>
-	<artifactId>jds-common</artifactId>
+	<artifactId>jds-common-parent</artifactId>
 	<version>1.0.0</version>
-	<name>jds-common</name>
+	<name>jds-common-parent</name>
+	<packaging>pom</packaging>
 
 	<distributionManagement>
 		<repository>
@@ -23,13 +24,8 @@
 		<maven.compiler.target>17</maven.compiler.target>
 	</properties>
 
-	<dependencies>
-	</dependencies>
-
-	<build>
-		<pluginManagement>
-			<plugins>
-			</plugins>
-		</pluginManagement>
-	</build>
+	<modules>
+		<module>jds-common-client</module>
+		<module>jds-common-messaging</module>
+	</modules>
 </project>
