@@ -73,23 +73,45 @@ public class FinderClient {
 
     /**
      * Get the specified webpage as a Jsoup {@code Document}, respecting robots.txt rules,
-     * crawl-delays, and with connection retries.
+     * enforcing crawl-delays, and with connection retries.
      *
      * @param url   URL of the webpage to get
      * @return      the specified webpage as a {@code Document} or null
      */
     public Document get(String url) {
-        return get(URI.create(url));
+        return get(URI.create(url), true);
+    }
+
+    /**
+     * Get the specified webpage as a Jsoup {@code Document}. Optionally respecting
+     * robots.txt rules, but always enforcing crawl-delays, and with connection retries.
+     *
+     * @param url   URL of the webpage to get
+     * @return      the specified webpage as a {@code Document} or null
+     */
+    public Document get(String url, boolean respectRobots) {
+        return get(URI.create(url), respectRobots);
     }
 
     /**
      * Get the specified webpage as a Jsoup {@code Document}, respecting robots.txt rules,
-     * crawl-delays, and with connection retries.
+     * enforcing crawl-delays, and with connection retries.
      *
      * @param url   URL of the webpage to get
      * @return      the specified webpage as a {@code Document} or null
      */
     public Document get(URI url) {
+        return get(url, true);
+    }
+
+    /**
+     * Get the specified webpage as a Jsoup {@code Document}. Optionally respecting
+     * robots.txt rules, but always enforcing crawl-delays, and with connection retries.
+     *
+     * @param url   URL of the webpage to get
+     * @return      the specified webpage as a {@code Document} or null
+     */
+    public Document get(URI url, boolean respectRobots) {
         if (url == null) {
             return null;
         }
@@ -102,7 +124,7 @@ public class FinderClient {
         }
 
         // If the path we're trying to access isn't allowed, we won't do it
-        if (!robotsRules.get(host).isAllowed(url.toString())) {
+        if (respectRobots && !robotsRules.get(host).isAllowed(url.toString())) {
             log.warn("Access to {} is disallowed according to the robots.txt rules for {}", url, host);
             return null;
         }
