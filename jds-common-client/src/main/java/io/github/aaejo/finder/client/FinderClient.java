@@ -14,8 +14,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hc.client5.http.fluent.Request;
 import org.apache.hc.client5.http.fluent.Response;
 import org.jsoup.Connection;
+import org.jsoup.Jsoup;
 import org.jsoup.helper.HttpConnection;
 import org.jsoup.nodes.Document;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+import org.openqa.selenium.JavascriptExecutor;
 import org.springframework.retry.support.RetryTemplate;
 
 import crawlercommons.robots.BaseRobotRules;
@@ -27,9 +33,13 @@ import crawlercommons.sitemaps.UnknownFormatException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * A wrapper around Jsoup connection functionality to be used by the finder modules.
+ * A utility for various webpage-fetchign functionality to be used by the finder modules.
  * Respects Robots Exclusion Protocol (robots.txt) rules, including crawl-delay.
  * Enforces a default "courtesy" delay even when one isn't requested with the crawl-delay directive.
+ *
+ * If instructed, will attempt to start up and use Selenium with headless Chrom(e/ium) and
+ * ChromeDriver to fetch pages in a manner that likely captures dynamic changes to the page HTML.
+ * Otherwise, or if Selenium setup fails, a configured Jsoup Connection will be used.
  */
 @Slf4j
 public class FinderClient {
@@ -44,9 +54,65 @@ public class FinderClient {
     private HashMap<String, Instant> lastConnectionTimes;
 
     private String userAgent;
+    private boolean seleniumEnabled;
+    private WebDriver driver;
 
     /**
      * @param session       configured Jsoup Connection object for use in requests
+     * @param retryTemplate configured Spring Retry RetryTemplate for request retries
+     * @param userAgent     the user-agent string to use for all requests
+     * @param enableSelenium    whether to attempt to enable Selenium-based page fetching
+     *
+     * @see Connection
+     * @see RetryTemplate
+     */
+    public FinderClient(Connection session, RetryTemplate retryTemplate, String userAgent, boolean enableSelenium) {
+        this.session = session;
+        this.retryTemplate = retryTemplate;
+        this.userAgent = StringUtils.isNotBlank(userAgent) ? userAgent : HttpConnection.DEFAULT_UA;
+        this.seleniumEnabled = enableSelenium;
+
+        if (this.seleniumEnabled) {
+            try {
+                // See: https://github.com/SeleniumHQ/selenium/issues/11750
+                System.setProperty("webdriver.http.factory", "jdk-http-client");
+                ChromeOptions options = new ChromeOptions();
+
+                if (System.getProperty("user.name").equals("root")) {
+                    // Required to run Chrome as root, and couldn't get it to run as non-root in container
+                    options.addArguments("--no-sandbox");
+                }
+                // The flag for new Chrome headless changed in 109
+                // Presumably it may change again when it becomes the default
+                // See here for more: https://www.selenium.dev/blog/2023/headless-is-going-away/
+                if (Integer.parseInt(System.getenv("CHROME_VERSION")) <= 108) {
+                    options.addArguments("--headless=chrome");
+                } else {
+                    options.addArguments("--headless=new");
+                }
+                if (StringUtils.isNotBlank(userAgent)) {
+                    options.addArguments("--user-agent=" + userAgent);
+                }
+                driver = new ChromeDriver(options);
+            } catch (Exception e) {
+                log.warn("Failed to set up Chromium and/or ChromeDriver. Client will fall back to Jsoup for page fetching.");
+                if (log.isDebugEnabled()) {
+                    log.error("Browser/Driver setup exception details:", e);
+                }
+                this.driver = null;
+                this.seleniumEnabled = false;
+            }
+        }
+
+        this.robotsParser = new SimpleRobotRulesParser();
+        this.robotsRules = new HashMap<>();
+        this.lastConnectionTimes = new HashMap<>();
+    }
+
+    /**
+     * Alternate constructor that attempts to enable Selenium strategy by default
+     *
+     * @param session       configured Jsoup Connection object for use when not fetching with Selenium
      * @param retryTemplate configured Spring Retry RetryTemplate for request retries
      * @param userAgent     the user-agent string to use for all requests
      *
@@ -54,18 +120,12 @@ public class FinderClient {
      * @see RetryTemplate
      */
     public FinderClient(Connection session, RetryTemplate retryTemplate, String userAgent) {
-        this.session = session;
-        this.retryTemplate = retryTemplate;
-
-        this.robotsParser = new SimpleRobotRulesParser();
-        this.robotsRules = new HashMap<>();
-        this.lastConnectionTimes = new HashMap<>();
-
-        this.userAgent = userAgent != null ? userAgent : HttpConnection.DEFAULT_UA;
+        this(session, retryTemplate, userAgent, true);
     }
 
     /**
      * Alternate constructor that uses default Jsoup user-agent string
+     * and attempts to enable Selenium strategy by default
      *
      * @param session       configured Jsoup Connection object for use in requests
      * @param retryTemplate configured Spring Retry RetryTemplate for request retries
@@ -76,6 +136,18 @@ public class FinderClient {
      */
     public FinderClient(Connection session, RetryTemplate retryTemplate) {
         this(session, retryTemplate, HttpConnection.DEFAULT_UA);
+    }
+
+    /**
+     * Shutdown the client instance. Unless Selenium is enabled this is effectively a
+     * no-op. Otherwise, this shuts down the driver and closes associated browser
+     * windows.
+     */
+    public void shutdown() {
+        log.debug("Shutting down FinderClient");
+        if (seleniumEnabled) {
+            driver.quit();
+        }
     }
 
     /**
@@ -182,7 +254,7 @@ public class FinderClient {
                 try {
                     // Update last connection time
                     lastConnectionTimes.put(key, Instant.now());
-                    return session.newRequest().url(url.toString()).get();
+                    return seleniumEnabled ? seleniumGet(url) : jsoupGet(url);
                 } catch (Exception e) {
                     log.error("Failed to fetch from {} on attempt {}. May retry.", url, (ctx.getRetryCount() + 1));
                     // Rethrowing as RuntimeException for retry handling
@@ -417,5 +489,35 @@ public class FinderClient {
             // Store the rules for this host for later
             robotsRules.put(toKey(url), robotsParser.parseContent(baseUrl, robotsTxtBytes, "text/plain", userAgent));
         }
+    }
+
+    /**
+     * Gets the webpage using a Jsoup connection.
+     *
+     * @param url   webpage to fetch
+     * @return      webpage contents as a Jsoup Document
+     * @throws Exception
+     */
+    private Document jsoupGet(URI url) throws Exception {
+        return session.newRequest().url(url.toString()).get();
+    }
+
+    /**
+     * Gets the webpage using Selenium, Chrom(e/ium), and ChromeDriver. Waits until page
+     * reports as completely ready and then extracts the full HTML after modification by
+     * scripts.
+     *
+     * @param url   webpage to fetch
+     * @return      webpage contents as a Jsoup Document
+     * @throws Exception
+     */
+    private Document seleniumGet(URI url) throws Exception {
+        driver.get(url.toString());
+        new WebDriverWait(driver, Duration.ofMillis(DEFAULT_DELAY_MILLIS))
+                .until(d -> ((JavascriptExecutor) d).executeScript("return document.readyState").toString()
+                        .equals("complete"));
+        String page = ((JavascriptExecutor) driver)
+                .executeScript("return document.getElementsByTagName('html')[0].outerHTML").toString();
+        return Jsoup.parse(page, url.toString());
     }
 }
