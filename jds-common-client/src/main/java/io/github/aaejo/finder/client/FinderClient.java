@@ -61,7 +61,8 @@ public class FinderClient {
         this.robotsRules = new HashMap<>();
         this.lastConnectionTimes = new HashMap<>();
 
-        this.userAgent = userAgent != null ? userAgent : HttpConnection.DEFAULT_UA;
+        this.userAgent = StringUtils.isNotBlank(userAgent) ? userAgent : HttpConnection.DEFAULT_UA;
+        this.session.userAgent(this.userAgent);
     }
 
     /**
