@@ -70,6 +70,8 @@ public class FinderClient {
         this.session = session;
         this.retryTemplate = retryTemplate;
         this.userAgent = StringUtils.isNotBlank(userAgent) ? userAgent : HttpConnection.DEFAULT_UA;
+        this.session.userAgent(this.userAgent);
+
         this.seleniumEnabled = enableSelenium;
 
         if (this.seleniumEnabled) {
