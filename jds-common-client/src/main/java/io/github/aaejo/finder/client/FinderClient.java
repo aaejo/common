@@ -87,7 +87,11 @@ public class FinderClient {
                 // The flag for new Chrome headless changed in 109
                 // Presumably it may change again when it becomes the default
                 // See here for more: https://www.selenium.dev/blog/2023/headless-is-going-away/
-                if (Integer.parseInt(System.getenv("CHROME_VERSION")) <= 108) {
+                // If CHROME_VERSION environment variable is not set, assume (effectively) latest
+                int chromeVersion = StringUtils.isNotBlank(System.getenv("CHROME_VERSION"))
+                        ? Integer.parseInt(System.getenv("CHROME_VERSION"))
+                        : Integer.MAX_VALUE;
+                if (chromeVersion <= 108) {
                     options.addArguments("--headless=chrome");
                 } else {
                     options.addArguments("--headless=new");
