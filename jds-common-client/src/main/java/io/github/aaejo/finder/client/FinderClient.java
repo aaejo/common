@@ -24,6 +24,8 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 import org.openqa.selenium.JavascriptExecutor;
 import org.springframework.retry.support.RetryTemplate;
 
+import crawlercommons.filters.URLFilter;
+import crawlercommons.filters.basic.BasicURLNormalizer;
 import crawlercommons.robots.BaseRobotRules;
 import crawlercommons.robots.BaseRobotsParser;
 import crawlercommons.robots.SimpleRobotRules;
@@ -48,14 +50,15 @@ public class FinderClient {
 
     private final Connection session;
     private final RetryTemplate retryTemplate;
+    private WebDriver driver;
 
+    private URLFilter filter;
     private BaseRobotsParser robotsParser;
     private HashMap<String, BaseRobotRules> robotsRules;
     private HashMap<String, Instant> lastConnectionTimes;
 
     private String userAgent;
     private boolean seleniumEnabled;
-    private WebDriver driver;
 
     /**
      * @param session       configured Jsoup Connection object for use in requests
@@ -110,6 +113,7 @@ public class FinderClient {
             }
         }
 
+        this.filter = new BasicURLNormalizer();
         this.robotsParser = new SimpleRobotRulesParser();
         this.robotsRules = new HashMap<>();
         this.lastConnectionTimes = new HashMap<>();
@@ -164,7 +168,7 @@ public class FinderClient {
      * @return      the specified webpage as a {@code Document} or null
      */
     public Document get(String url) {
-        return get(URI.create(url), true);
+        return get(URI.create(filter.filter(url)), true);
     }
 
     /**
@@ -175,7 +179,7 @@ public class FinderClient {
      * @return      the specified webpage as a {@code Document} or null
      */
     public Document get(String url, boolean respectRobots) {
-        return get(URI.create(url), respectRobots);
+        return get(URI.create(filter.filter(url)), respectRobots);
     }
 
     /**
