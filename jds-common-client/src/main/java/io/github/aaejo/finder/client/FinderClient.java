@@ -124,6 +124,11 @@ public class FinderClient {
             return null;
         }
 
+        if (!StringUtils.containsAny(url.getScheme(), "http", "https")) {
+            log.debug("Cannot fetch non-http/s URLs.");
+            return null;
+        }
+
         String key = toKey(url);
 
         // Get the robots rules for the host if we don't have them already
