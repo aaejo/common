@@ -17,11 +17,10 @@ import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.helper.HttpConnection;
 import org.jsoup.nodes.Document;
+import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.support.ui.WebDriverWait;
-import org.openqa.selenium.JavascriptExecutor;
 import org.springframework.retry.support.RetryTemplate;
 
 import crawlercommons.filters.URLFilter;
@@ -35,13 +34,15 @@ import crawlercommons.sitemaps.UnknownFormatException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * A utility for various webpage-fetchign functionality to be used by the finder modules.
+ * A utility for various webpage-fetching functionality to be used by the finder modules.
  * Respects Robots Exclusion Protocol (robots.txt) rules, including crawl-delay.
  * Enforces a default "courtesy" delay even when one isn't requested with the crawl-delay directive.
  *
  * If instructed, will attempt to start up and use Selenium with headless Chrom(e/ium) and
  * ChromeDriver to fetch pages in a manner that likely captures dynamic changes to the page HTML.
  * Otherwise, or if Selenium setup fails, a configured Jsoup Connection will be used.
+ * 
+ * @author Omri Harary
  */
 @Slf4j
 public class FinderClient {
@@ -83,6 +84,10 @@ public class FinderClient {
                 System.setProperty("webdriver.http.factory", "jdk-http-client");
                 ChromeOptions options = new ChromeOptions();
 
+                // Ensure default flags from environment are also used when starting with Selenium
+                if (StringUtils.isNotBlank(System.getenv("CHROMIUM_FLAGS"))) {
+                    options.addArguments(System.getenv("CHROMIUM_FLAGS").split(" "));
+                }
                 if (System.getProperty("user.name").equals("root")) {
                     // Required to run Chrome as root, and couldn't get it to run as non-root in container
                     options.addArguments("--no-sandbox");
@@ -202,6 +207,11 @@ public class FinderClient {
      */
     public Document get(URI url, boolean respectRobots) {
         if (url == null) {
+            return null;
+        }
+
+        if (!StringUtils.containsAny(url.getScheme(), "http", "https")) {
+            log.debug("Cannot fetch non-http/s URLs.");
             return null;
         }
 
@@ -523,9 +533,7 @@ public class FinderClient {
      */
     private Document seleniumGet(URI url) throws Exception {
         driver.get(url.toString());
-        new WebDriverWait(driver, Duration.ofMillis(DEFAULT_DELAY_MILLIS))
-                .until(d -> ((JavascriptExecutor) d).executeScript("return document.readyState").toString()
-                        .equals("complete"));
+        Thread.sleep(DEFAULT_DELAY_MILLIS);
         String page = ((JavascriptExecutor) driver)
                 .executeScript("return document.getElementsByTagName('html')[0].outerHTML").toString();
         return Jsoup.parse(page, url.toString());
