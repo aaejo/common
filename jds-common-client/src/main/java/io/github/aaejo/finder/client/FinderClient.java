@@ -523,9 +523,8 @@ public class FinderClient {
     }
 
     /**
-     * Gets the webpage using Selenium, Chrom(e/ium), and ChromeDriver. Waits until page
-     * reports as completely ready and then extracts the full HTML after modification by
-     * scripts.
+     * Gets the webpage using Selenium, Chrom(e/ium), and ChromeDriver. Gives time for page to load
+     * fully and then extracts the full HTML after modification by scripts.
      *
      * @param url   webpage to fetch
      * @return      webpage contents as a Jsoup Document
@@ -536,6 +535,7 @@ public class FinderClient {
         Thread.sleep(DEFAULT_DELAY_MILLIS);
         String page = ((JavascriptExecutor) driver)
                 .executeScript("return document.getElementsByTagName('html')[0].outerHTML").toString();
-        return Jsoup.parse(page, url.toString());
+        String resolvedUrl = driver.getCurrentUrl(); // Makes sure it's after redirects.
+        return Jsoup.parse(page, resolvedUrl);
     }
 }
