@@ -11,6 +11,8 @@ package io.github.aaejo.messaging.records;
  * @param specializations   a list of the reviewer's specializations
  * 
  * @see Institution
+ * 
+ * @author Omri Harary
  */
 public record Reviewer(
         String name,

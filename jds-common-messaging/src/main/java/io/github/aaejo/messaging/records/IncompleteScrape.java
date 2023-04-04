@@ -9,6 +9,8 @@ package io.github.aaejo.messaging.records;
  *
  * @see Profile
  * @see Reviewer
+ * 
+ * @author Omri Harary
  */
 public record IncompleteScrape(Profile profile, Reviewer reviewer, MissingFlags[] missing) {
 

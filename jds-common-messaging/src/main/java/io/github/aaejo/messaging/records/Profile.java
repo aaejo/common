@@ -9,6 +9,8 @@ package io.github.aaejo.messaging.records;
  * @param institution   institution that this profile came from
  * 
  * @see Institution
+ * 
+ * @author Omri Harary
  */
 public record Profile(String htmlContent, String url, String department, Institution institution) {
 }
