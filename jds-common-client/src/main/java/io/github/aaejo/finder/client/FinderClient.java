@@ -44,6 +44,13 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * @author Omri Harary
  */
+/* 
+ * NOTE: Someday I would really love to find a way to make this all work without needing 
+ * Selenium and a real browser. HtmlUnit seemed really promising, but its JavaScript support
+ * just wasn't good enough to handle arbitrary sites like we need it to. It couldn't even
+ * handle the Oxford faculty list, which is the entire reason we discovered the significance
+ * of not handling dynamic content in the first place.
+ */
 @Slf4j
 public class FinderClient {
 
