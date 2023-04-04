@@ -15,7 +15,7 @@ public record IncompleteScrape(Profile profile, Reviewer reviewer, MissingFlags[
     /**
      * Flags for which critical field is missing.
      */
-    static enum MissingFlags {
+    public static enum MissingFlags {
         /**
          * Name missing
          */
