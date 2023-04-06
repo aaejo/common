@@ -1,0 +1,232 @@
+name: journal-database-slurp
+services:
+# Application Components
+  institution-finder-us:
+    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    environment:
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+      SERVER_SERVLET_CONTEXTPATH: '/us'
+      AAEJO_JDS_INSTITUTIONFINDER_COUNTRY: 'USA'
+      AAEJO_JDS_INSTITUTIONFINDER_REGISTRYURL: 'https://nces.ed.gov/collegenavigator'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  institution-finder-canada:
+    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    volumes:
+    - './deploy/institutions-data/:/opt/jds/data/:ro'
+    environment:
+      SERVER_SERVLET_CONTEXTPATH: '/ca'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+      AAEJO_JDS_INSTITUTIONFINDER_COUNTRY: 'CANADA'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  institution-finder-uk:
+    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    volumes:
+    - './deploy/institutions-data/:/opt/jds/data/:ro'
+    environment:
+      SERVER_SERVLET_CONTEXTPATH: '/uk'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+      AAEJO_JDS_INSTITUTIONFINDER_COUNTRY: 'UK'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  institution-finder-australia:
+    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    volumes:
+    - './deploy/institutions-data/:/opt/jds/data/:ro'
+    environment:
+      SERVER_SERVLET_CONTEXTPATH: '/au'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+      AAEJO_JDS_INSTITUTIONFINDER_COUNTRY: 'AUSTRALIA'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  institution-finder-new-zealand:
+    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    volumes:
+    - './deploy/institutions-data/:/opt/jds/data/:ro'
+    environment:
+      SERVER_SERVLET_CONTEXTPATH: '/nz'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+      AAEJO_JDS_INSTITUTIONFINDER_COUNTRY: 'NEW_ZEALAND'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  profile-finder:
+    image: 'ghcr.io/aaejo/profile-finder:1.0.0-beta'
+    environment:
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  profile-scraper:
+    image: 'ghcr.io/aaejo/profile-scraper:1.0.0'
+    environment:
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  manual-intervention:
+    image: 'ghcr.io/aaejo/manual-intervention:1.0.0'
+    environment:
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+  reviewers-sink:
+    image: 'ghcr.io/aaejo/reviewers-sink:1.0.0'
+    environment:
+      SPRING_DATASOURCE_URL: 'jdbc:mariadb://db:3306/jds'
+      SPRING_DATASOURCE_USERNAME: 'jds'
+      SPRING_DATASOURCE_PASSWORD: 'aaejo'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    depends_on:
+    - kafka-1
+    - kafka-2
+    - kafka-3
+    - db
+  data-importer:
+    image: 'ghcr.io/aaejo/data-importer:1.0.0'
+    environment:
+      SERVER_SERVLET_CONTEXTPATH: '/import'
+      SPRING_DATASOURCE_URL: 'jdbc:mariadb://db:3306/jds'
+      SPRING_DATASOURCE_USERNAME: 'jds'
+      SPRING_DATASOURCE_PASSWORD: 'aaejo'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    depends_on:
+    - db
+  data-exporter:
+    image: 'ghcr.io/aaejo/data-exporter:1.0.0'
+    environment:
+      SERVER_SERVLET_CONTEXTPATH: '/export'
+      SPRING_DATASOURCE_URL: 'jdbc:mariadb://db:3306/jds'
+      SPRING_DATASOURCE_USERNAME: 'jds'
+      SPRING_DATASOURCE_PASSWORD: 'aaejo'
+      SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    depends_on:
+    - db
+  dashboard:
+    image: 'ghcr.io/aaejo/dashboard:1.0.0-beta'
+    volumes:
+    - './deploy/nginx/gateway.conf:/etc/nginx/conf.d/app/gateway.conf:ro'
+    ports:
+    - '8000:80'
+    depends_on:
+    - institution-finder-us
+    - institution-finder-canada
+    - institution-finder-uk
+    - institution-finder-australia
+    - institution-finder-new-zealand
+    - manual-intervention
+    - data-importer
+    - data-exporter
+
+# Services
+  kafka-1:
+    image: 'bitnami/kafka:3.4.0-debian-11-r12'
+    volumes:
+    - 'kafka-1-data:/bitnami/kafka'
+    environment:
+      KAFKA_BROKER_ID: '1'
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: '2'
+    # KRaft settings
+      KAFKA_ENABLE_KRAFT: 'yes'
+      KAFKA_KRAFT_CLUSTER_ID: 'yUnOvYJWSqSVJBlorCAVpg' # Generated with kafka-storage.sh random-uuid
+      KAFKA_CFG_NODE_ID: '1'
+      KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
+    # Connectivity settings
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      KAFKA_CFG_LISTENERS: 'INTERNAL://:9092,CONTROLLER://:9093'
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: 'INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      KAFKA_CFG_ADVERTISED_LISTENERS: 'INTERNAL://kafka-1:9092'
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
+  kafka-2:
+    image: 'bitnami/kafka:3.4.0-debian-11-r12'
+    volumes:
+    - 'kafka-2-data:/bitnami/kafka'
+    environment:
+      KAFKA_BROKER_ID: '2'
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: '2'
+    # KRaft settings
+      KAFKA_ENABLE_KRAFT: 'yes'
+      KAFKA_KRAFT_CLUSTER_ID: 'yUnOvYJWSqSVJBlorCAVpg' # Generated with kafka-storage.sh random-uuid
+      KAFKA_CFG_NODE_ID: '2'
+      KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
+    # Connectivity settings
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      KAFKA_CFG_LISTENERS: 'INTERNAL://:9092,CONTROLLER://:9093'
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: 'INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      KAFKA_CFG_ADVERTISED_LISTENERS: 'INTERNAL://kafka-2:9092'
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
+  kafka-3:
+    image: 'bitnami/kafka:3.4.0-debian-11-r12'
+    volumes:
+    - 'kafka-3-data:/bitnami/kafka'
+    environment:
+      KAFKA_BROKER_ID: '3'
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: '2'
+    # KRaft settings
+      KAFKA_ENABLE_KRAFT: 'yes'
+      KAFKA_KRAFT_CLUSTER_ID: 'yUnOvYJWSqSVJBlorCAVpg' # Generated with kafka-storage.sh random-uuid
+      KAFKA_CFG_NODE_ID: '3'
+      KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093'
+    # Connectivity settings
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      KAFKA_CFG_LISTENERS: 'INTERNAL://:9092,CONTROLLER://:9093'
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: 'INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      KAFKA_CFG_ADVERTISED_LISTENERS: 'INTERNAL://kafka-3:9092'
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
+  db:
+    image: 'mariadb:10.11.2-jammy'
+    volumes:
+    - 'db-data:/var/lib/mysql'
+    # Files put in the sql/ directory of this repo will be executed on container startup
+    - './deploy/sql:/docker-entrypoint-initdb.d:ro'
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: 'yes'
+      MARIADB_DATABASE: 'jds'
+      MARIADB_USER: 'jds'
+      MARIADB_PASSWORD: 'aaejo'
+
+# Utilities
+  kafka-console:
+    image: 'docker.redpanda.com/vectorized/console:v2.1.1'
+    environment:
+      KAFKA_BROKERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
+    ports:
+    - '8081:8080'
+    depends_on:
+    - 'kafka-1'
+    - 'kafka-2'
+    - 'kafka-3'
+  adminer:
+    image: 'adminer:4.8.1-standalone'
+    environment:
+      ADMINER_DESIGN: 'dracula'
+    ports:
+    - '8080:8080'
+    depends_on:
+    - 'db'
+
+volumes:
+  db-data:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
