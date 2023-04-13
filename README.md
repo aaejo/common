@@ -1,6 +1,20 @@
 # common
 Utilities and bits shared by multiple other repos
 
+# Deployment
+
+This repo contains the orchestration for deploying and running the entire project system. The full system environment is described in `docker-compose.yaml`, and can be launched by executing `docker compose up -d`.  
+
+Configuration of the system components is ideally carried out through the `docker-compose.yaml` file by setting environment variables. See the configuration section of the user manual for more information.
+
+Scripts (`.sh`, `.sql`, `.sql.gz`, `.sql.xz` and `.sql.zst`) in the `deploy/sql/` directory of this repo will be used to initialize the database when the system starts up.  
+
+New institution data files can be placed in the `deploy/institutions-data/` directory to update the JSON source files for the file-based institution-finder modules without requiring a rebuild.
+
+---
+
+# Developer Resources
+
 ## Common Java Library
 
 This repo contains common Java code to be shared between project components. It is split into multiple Maven modules, with the root `pom.xml` acting as the parent and build reactor. The modules are:
@@ -72,4 +86,4 @@ The compose file defines a few port-forwards for development use, these will all
 
 None of the containers have persistent volumes, data will be lost on container restart.  
 
-Scripts (`.sh`, `.sql`, `.sql.gz`, `.sql.xz` and `.sql.zst`) in the `sql/` directory of this repo will be used to initialize the database when the container starts up.  
+Scripts (`.sh`, `.sql`, `.sql.gz`, `.sql.xz` and `.sql.zst`) in the `deploy/sql/` directory of this repo will be used to initialize the database when the container starts up.  

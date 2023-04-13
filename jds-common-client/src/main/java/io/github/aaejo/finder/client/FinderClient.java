@@ -3,25 +3,37 @@ package io.github.aaejo.finder.client;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hc.client5.http.fluent.Request;
-import org.apache.hc.client5.http.fluent.Response;
+import org.apache.hc.core5.net.URIBuilder;
+import org.apache.hc.core5.util.Timeout;
 import org.jsoup.Connection;
-import org.jsoup.Jsoup;
-import org.jsoup.helper.HttpConnection;
 import org.jsoup.nodes.Document;
-import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
 import org.springframework.retry.support.RetryTemplate;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.playwright.Browser;
+import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.BrowserType.LaunchOptions;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.Response;
+import com.microsoft.playwright.Route;
+import com.microsoft.playwright.options.WaitUntilState;
 
 import crawlercommons.filters.URLFilter;
 import crawlercommons.filters.basic.BasicURLNormalizer;
@@ -38,15 +50,15 @@ import lombok.extern.slf4j.Slf4j;
  * Respects Robots Exclusion Protocol (robots.txt) rules, including crawl-delay.
  * Enforces a default "courtesy" delay even when one isn't requested with the crawl-delay directive.
  *
- * If instructed, will attempt to start up and use Selenium with headless Chrom(e/ium) and
+ * If instructed, will attempt to start up and use Playwright with headless Chrom(e/ium) and
  * ChromeDriver to fetch pages in a manner that likely captures dynamic changes to the page HTML.
- * Otherwise, or if Selenium setup fails, a configured Jsoup Connection will be used.
- * 
+ * Otherwise, or if Playwright setup fails, a configured Jsoup Connection will be used.
+ *
  * @author Omri Harary
  */
-/* 
- * NOTE: Someday I would really love to find a way to make this all work without needing 
- * Selenium and a real browser. HtmlUnit seemed really promising, but its JavaScript support
+/*
+ * NOTE: Someday I would really love to find a way to make this all work without needing
+ * a real browser. HtmlUnit seemed really promising, but its JavaScript support
  * just wasn't good enough to handle arbitrary sites like we need it to. It couldn't even
  * handle the Oxford faculty list, which is the entire reason we discovered the significance
  * of not handling dynamic content in the first place.
@@ -54,50 +66,47 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class FinderClient {
 
-    private static final long DEFAULT_DELAY_MILLIS = 2000L;
-
     private final Connection session;
     private final RetryTemplate retryTemplate;
-    private WebDriver driver;
+    private final FinderClientProperties properties;
+
+    private Browser browser;
 
     private URLFilter filter;
     private BaseRobotsParser robotsParser;
     private HashMap<String, BaseRobotRules> robotsRules;
     private HashMap<String, Instant> lastConnectionTimes;
 
-    private String userAgent;
-    private boolean seleniumEnabled;
+    private static JsonNode blockList;
 
     /**
      * @param session       configured Jsoup Connection object for use in requests
      * @param retryTemplate configured Spring Retry RetryTemplate for request retries
-     * @param userAgent     the user-agent string to use for all requests
-     * @param enableSelenium    whether to attempt to enable Selenium-based page fetching
+     * @param properties    client configuration properties
      *
      * @see Connection
      * @see RetryTemplate
      */
-    public FinderClient(Connection session, RetryTemplate retryTemplate, String userAgent, boolean enableSelenium) {
-        this.session = session;
-        this.retryTemplate = retryTemplate;
-        this.userAgent = StringUtils.isNotBlank(userAgent) ? userAgent : HttpConnection.DEFAULT_UA;
-        this.session.userAgent(this.userAgent);
+    public FinderClient(Connection session, FinderClientProperties properties) {
+        this.session = session; // TODO: Maybe we just drop support for the Jsoup fallback
+        this.retryTemplate = RetryTemplate.builder()
+                                .maxAttempts(properties.getRetryAttempts())
+                                .fixedBackoff(properties.getRetryBackoff())
+                                .build();
+        this.properties = properties;
 
-        this.seleniumEnabled = enableSelenium;
-
-        if (this.seleniumEnabled) {
+        if (properties.isEnablePlaywright()) {
             try {
-                // See: https://github.com/SeleniumHQ/selenium/issues/11750
-                System.setProperty("webdriver.http.factory", "jdk-http-client");
-                ChromeOptions options = new ChromeOptions();
+                List<String> args = new ArrayList<>(properties.getChromeArgs());
 
-                // Ensure default flags from environment are also used when starting with Selenium
+                // TODO: Can probably clean up some flags thanks to Playwright defaults
+                // Ensure default flags from environment are also used when starting with Playwright
                 if (StringUtils.isNotBlank(System.getenv("CHROMIUM_FLAGS"))) {
-                    options.addArguments(System.getenv("CHROMIUM_FLAGS").split(" "));
+                    args.addAll(Arrays.asList(System.getenv("CHROMIUM_FLAGS").split(" ")));
                 }
-                if (System.getProperty("user.name").equals("root")) {
+                if ("root".equals(System.getProperty("user.name"))) {
                     // Required to run Chrome as root, and couldn't get it to run as non-root in container
-                    options.addArguments("--no-sandbox");
+                    args.add("--no-sandbox");
                 }
                 // The flag for new Chrome headless changed in 109
                 // Presumably it may change again when it becomes the default
@@ -107,21 +116,32 @@ public class FinderClient {
                         ? Integer.parseInt(System.getenv("CHROME_VERSION"))
                         : Integer.MAX_VALUE;
                 if (chromeVersion <= 108) {
-                    options.addArguments("--headless=chrome");
+                    args.add("--headless=chrome");
                 } else {
-                    options.addArguments("--headless=new");
+                    args.add("--headless=new");
                 }
-                if (StringUtils.isNotBlank(userAgent)) {
-                    options.addArguments("--user-agent=" + userAgent);
+
+                args.add("--user-agent=" + properties.getUserAgent());
+
+                LaunchOptions options = new BrowserType.LaunchOptions();
+                options.setArgs(args);
+                if (StringUtils.isNotBlank(System.getenv("CHROME_BIN"))) {
+                    options.setExecutablePath(Path.of(System.getenv("CHROME_BIN")));
                 }
-                driver = new ChromeDriver(options);
+
+                this.browser = Playwright.create().chromium().launch(options);
+
+                if (properties.doBlockTrackers()) {
+                    ObjectMapper mapper = new ObjectMapper();
+                    blockList = mapper.readTree(new URL("https://raw.githubusercontent.com/duckduckgo/tracker-blocklists/main/web/tds.json"));
+                }
             } catch (Exception e) {
-                log.warn("Failed to set up Chromium and/or ChromeDriver. Client will fall back to Jsoup for page fetching.");
-                if (log.isDebugEnabled()) {
-                    log.error("Browser/Driver setup exception details:", e);
+                log.error("An exception occurred in setting up Playwright", e);
+                if (this.browser != null) {
+                    this.browser.close();
+                    this.browser = null;
                 }
-                this.driver = null;
-                this.seleniumEnabled = false;
+                properties.setEnablePlaywright(false);
             }
         }
 
@@ -129,90 +149,62 @@ public class FinderClient {
         this.robotsParser = new SimpleRobotRulesParser();
         this.robotsRules = new HashMap<>();
         this.lastConnectionTimes = new HashMap<>();
+
+        this.session.userAgent(properties.getUserAgent());
     }
 
     /**
-     * Alternate constructor that attempts to enable Selenium strategy by default
-     *
-     * @param session       configured Jsoup Connection object for use when not fetching with Selenium
-     * @param retryTemplate configured Spring Retry RetryTemplate for request retries
-     * @param userAgent     the user-agent string to use for all requests
-     *
-     * @see Connection
-     * @see RetryTemplate
-     */
-    public FinderClient(Connection session, RetryTemplate retryTemplate, String userAgent) {
-        this(session, retryTemplate, userAgent, true);
-    }
-
-    /**
-     * Alternate constructor that uses default Jsoup user-agent string
-     * and attempts to enable Selenium strategy by default
-     *
-     * @param session       configured Jsoup Connection object for use in requests
-     * @param retryTemplate configured Spring Retry RetryTemplate for request retries
-     *
-     * @see Connection
-     * @see RetryTemplate
-     * @see HttpConnection#DEFAULT_UA
-     */
-    public FinderClient(Connection session, RetryTemplate retryTemplate) {
-        this(session, retryTemplate, HttpConnection.DEFAULT_UA);
-    }
-
-    /**
-     * Shutdown the client instance. Unless Selenium is enabled this is effectively a
-     * no-op. Otherwise, this shuts down the driver and closes associated browser
-     * windows.
+     * Shutdown the client instance. Unless Playwright is enabled this is effectively a
+     * no-op. Otherwise, this shuts down the driver and browser.
      */
     public void shutdown() {
         log.debug("Shutting down FinderClient");
-        if (seleniumEnabled) {
-            driver.quit();
+        if (properties.isEnablePlaywright()) {
+            browser.close();
         }
     }
 
     /**
-     * Get the specified webpage as a Jsoup {@code Document}, respecting robots.txt rules,
+     * Get the specified webpage as a {@code FinderClientResponse}, respecting robots.txt rules,
      * enforcing crawl-delays, and with connection retries.
      *
      * @param url   URL of the webpage to get
      * @return      the specified webpage as a {@code Document} or null
      */
-    public Document get(String url) {
+    public FinderClientResponse get(String url) {
         return get(URI.create(filter.filter(url)), true);
     }
 
     /**
-     * Get the specified webpage as a Jsoup {@code Document}. Optionally respecting
+     * Get the specified webpage as a {@code FinderClientResponse}. Optionally respecting
      * robots.txt rules, but always enforcing crawl-delays, and with connection retries.
      *
      * @param url   URL of the webpage to get
      * @return      the specified webpage as a {@code Document} or null
      */
-    public Document get(String url, boolean respectRobots) {
+    public FinderClientResponse get(String url, boolean respectRobots) {
         return get(URI.create(filter.filter(url)), respectRobots);
     }
 
     /**
-     * Get the specified webpage as a Jsoup {@code Document}, respecting robots.txt rules,
+     * Get the specified webpage as a {@code FinderClientResponse}, respecting robots.txt rules,
      * enforcing crawl-delays, and with connection retries.
      *
      * @param url   URL of the webpage to get
      * @return      the specified webpage as a {@code Document} or null
      */
-    public Document get(URI url) {
+    public FinderClientResponse get(URI url) {
         return get(url, true);
     }
 
     /**
-     * Get the specified webpage as a Jsoup {@code Document}. Optionally respecting
+     * Get the specified webpage as a {@code FinderClientResponse}. Optionally respecting
      * robots.txt rules, but always enforcing crawl-delays, and with connection retries.
      *
      * @param url   URL of the webpage to get
      * @return      the specified webpage as a {@code Document} or null
      */
-    public Document get(URI url, boolean respectRobots) {
+    public FinderClientResponse get(URI url, boolean respectRobots) {
         if (url == null) {
             return null;
         }
@@ -241,7 +233,7 @@ public class FinderClient {
             boolean hasCrawlDelay = robotsRules.get(key).getCrawlDelay() != BaseRobotRules.UNSET_CRAWL_DELAY;
             // Use the crawl delay from robots if there is one, otherwise use our default as a courtesy
             long requiredDelayMillis = hasCrawlDelay ? robotsRules.get(key).getCrawlDelay() // Rules parser already puts crawl-delay in millis
-                    : DEFAULT_DELAY_MILLIS;
+                    : properties.getCourtesyDelayMillis();
             // Calculate how long it has been since the last connection to the host
             long millisSinceLastConnection = Duration.between(lastConnectionTimes.get(key), Instant.now()).abs()
                     .toMillis();
@@ -275,15 +267,15 @@ public class FinderClient {
         }
 
         // Get the page, using the configured retry template's strategy
-        Document page = retryTemplate.execute(
+        FinderClientResponse page = retryTemplate.execute(
             // Retryable part
             ctx -> {
                 try {
                     // Update last connection time
                     lastConnectionTimes.put(key, Instant.now());
-                    return seleniumEnabled ? seleniumGet(url) : jsoupGet(url);
+                    return properties.isEnablePlaywright() ? playwrightGet(url) : jsoupGet(url);
                 } catch (Exception e) {
-                    log.error("Failed to fetch from {} on attempt {}. May retry.", url, (ctx.getRetryCount() + 1));
+                    log.error("Failed to fetch from {} on attempt {}/{}.", url, (ctx.getRetryCount() + 1), properties.getRetryAttempts());
                     // Rethrowing as RuntimeException for retry handling
                     throw new RuntimeException(e);
                 }
@@ -297,7 +289,7 @@ public class FinderClient {
                     log.error("Last exception details", lastException);
                 }
                 // If we exceed max retries, return null
-                return null;
+                return new FinderClientResponse(lastException);
             }
         );
 
@@ -440,21 +432,6 @@ public class FinderClient {
     }
 
     /**
-     * Get a base, connectable HTTP URL string from the given URL string.
-     * Effectively takes the hostname and scheme, if present. Otherwise sets the scheme as http.
-     *
-     * @param url   URL string to reduce
-     * @return      reduced base URL string
-     */
-    private String baseUrl(String url) {
-        if (url == null) {
-            return null;
-        }
-
-        return baseUrl(URI.create(url));
-    }
-
-    /**
      * Get a base, connectable HTTP URL string from the given URI.
      * Effectively takes the hostname and scheme, if present. Otherwise sets the scheme as http.
      *
@@ -484,13 +461,17 @@ public class FinderClient {
             // Retryable part
             ctx -> {
                 try {
-                    Response response = Request
+                    return Request
                             .get(robotsTxtUrl)
-                            .userAgent(userAgent)
-                            .execute();
-                    return response.returnContent().asBytes();
+                            .userAgent(properties.getUserAgent())
+                            .connectTimeout(Timeout.ofMilliseconds(properties.getFetchTimeoutMillis()))
+                            .responseTimeout(Timeout.ofMilliseconds(properties.getFetchTimeoutMillis()))
+                            .execute()
+                            .returnContent()
+                            .asBytes();
                 } catch (Exception e) {
-                    log.error("Unable to get robots.txt file from {} on attempt {}. May retry.", robotsTxtUrl, (ctx.getRetryCount() + 1));
+                        log.error("Unable to get robots.txt file from {} on attempt {}/{}.", robotsTxtUrl,
+                                (ctx.getRetryCount() + 1), properties.getRetryAttempts());
                     // Rethrowing as RuntimeException for retry handling
                     throw new RuntimeException(e);
                 }
@@ -514,7 +495,7 @@ public class FinderClient {
             robotsRules.put(toKey(url), new SimpleRobotRules(SimpleRobotRules.RobotRulesMode.ALLOW_ALL));
         } else {
             // Store the rules for this host for later
-            robotsRules.put(toKey(url), robotsParser.parseContent(baseUrl, robotsTxtBytes, "text/plain", userAgent));
+            robotsRules.put(toKey(url), robotsParser.parseContent(baseUrl, robotsTxtBytes, "text/plain", properties.getUserAgent()));
         }
     }
 
@@ -522,27 +503,212 @@ public class FinderClient {
      * Gets the webpage using a Jsoup connection.
      *
      * @param url   webpage to fetch
-     * @return      webpage contents as a Jsoup Document
+     * @return      webpage contents and response details
      * @throws Exception
      */
-    private Document jsoupGet(URI url) throws Exception {
-        return session.newRequest().url(url.toString()).get();
+    private FinderClientResponse jsoupGet(URI url) throws Exception {
+        Document page = session.newRequest().url(url.toString()).get();
+
+        if (shouldThrow(page.connection().response().statusCode())) {
+            throw new IOException("HTTP error occurred. Status = [" + page.connection().response().statusCode()
+                    + "] Message = [" + page.connection().response().statusMessage() + "]");
+        }
+        return new FinderClientResponse(page);
     }
 
     /**
-     * Gets the webpage using Selenium, Chrom(e/ium), and ChromeDriver. Gives time for page to load
+     * Gets the webpage using Playwright and Chrom(e/ium). Gives time for page to load
      * fully and then extracts the full HTML after modification by scripts.
      *
      * @param url   webpage to fetch
-     * @return      webpage contents as a Jsoup Document
+     * @return      webpage contents and response details
      * @throws Exception
      */
-    private Document seleniumGet(URI url) throws Exception {
-        driver.get(url.toString());
-        Thread.sleep(DEFAULT_DELAY_MILLIS);
-        String page = ((JavascriptExecutor) driver)
-                .executeScript("return document.getElementsByTagName('html')[0].outerHTML").toString();
-        String resolvedUrl = driver.getCurrentUrl(); // Makes sure it's after redirects.
-        return Jsoup.parse(page, resolvedUrl);
+    private FinderClientResponse playwrightGet(URI url) throws Exception {
+        try (BrowserContext context = browser.newContext(); Page page = context.newPage()) {
+            page.route("**/*", route -> {
+                if (StringUtils.equalsAny(route.request().resourceType(), "image", "media"))
+                    route.abort();
+                else if (properties.doBlockTrackers() && shouldBlock(route))
+                    route.abort();
+                else
+                    route.resume();
+            });
+
+            Response response = page.navigate(url.toString(),
+                    new Page.NavigateOptions()
+                            .setTimeout(properties.getFetchTimeoutMillis())
+                            .setWaitUntil(WaitUntilState.NETWORKIDLE)); // Wait until network is quiet
+
+            if (shouldThrow(response.status())) {
+                throw new IOException("HTTP error occurred. Status = [" + response.status() + "] Message = ["
+                        + response.statusText() + "]");
+            }
+
+            return new FinderClientResponse(response, page);
+        }
+    }
+
+    // https://github.com/duckduckgo/tracker-blocklists/blob/main/web/EXAMPLES.md
+    // More concerned with the performance penalties from trackers, rather than the privacy issues
+    private static boolean shouldBlock(Route route) {
+        URL url;
+        try {
+            url = new URL(route.request().url()); // URI errors on the pipe characters for google fonts, URL doesn't
+        } catch (MalformedURLException e) {
+            if (log.isDebugEnabled()) {
+                log.error("Error in URL construction", e);
+            }
+            return false;
+        }
+        String host = url.getHost();
+
+        // 1.
+        JsonNode cnames = blockList.get("cnames");
+        JsonNode cnameEntry;
+        String hostToken = host;
+        do {
+            cnameEntry = cnames.path(hostToken);
+        } while (cnameEntry.isMissingNode() // stop if match found
+                && !(hostToken = StringUtils.substringAfter(hostToken, ".")).isEmpty()); // or out of domain levels to match
+        if (!cnameEntry.isMissingNode()){
+            host = cnameEntry.asText();
+        }
+
+        // 2.
+        JsonNode trackers = blockList.get("trackers");
+        JsonNode trackersEntry;
+        hostToken = host;
+        do {
+            trackersEntry = trackers.path(hostToken);
+        } while (trackersEntry.isMissingNode() // stop if match found
+                && !(hostToken = StringUtils.substringAfter(hostToken, ".")).isEmpty()); // or out of domain levels to match
+        if (trackersEntry.isMissingNode()) {
+            return false; // No match means we let it through here
+        }
+
+        // 3.
+        if (!host.equals(url.getHost())) { // If host was changed (by step 1)
+            try {
+                url = new URIBuilder(url.toURI()).setHost(host).build().toURL(); // update with modified host
+            } catch (URISyntaxException | MalformedURLException e) {
+                if (log.isDebugEnabled()) {
+                    log.error("Error in URI reconstruction", e);
+                }
+                return false;
+            }
+        }
+
+        for (var rule : trackersEntry.path("rules")) {
+            var ruleEx = rule.path("rule");
+            if (!ruleEx.isMissingNode()) {
+                Pattern regex = Pattern.compile(ruleEx.asText());
+                if (regex.matcher(url.toString()).find()) {
+                    if (rule.path("action").asText().equals("ignore")) {
+                        return false;
+                    }
+
+                    JsonNode options = rule.path("options");
+                    if (!options.isMissingNode()) {
+                        boolean domainOk;
+                        var domains = options.path("domains");
+                        if (domains.isMissingNode()) {
+                            domainOk = true; // No domains list means we're fine no matter what
+                        } else {
+                            domainOk = false; // With a list, we might have a problem and need to be sure
+                            String sourceUrl = route.request().frame().url();
+                            for (var domain : domains) {
+                                if (sourceUrl.contains(domain.asText())) {
+                                    domainOk = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!domainOk) {
+                            break; // Both need to be ok, so we can skip doing the type check if domain isn't
+                        }
+
+                        boolean typeOk;
+                        JsonNode types = options.path("types");
+                        if (types.isMissingNode()) {
+                            typeOk = true; // No types list means we're fine no matter what
+                        } else {
+                            typeOk = false; // With a list, we might have a problem and need to be sure
+                            String requestType = route.request().resourceType();
+                            for (var type : types) {
+                                if (requestType.equals(type.asText())) {
+                                    typeOk = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!domainOk && !typeOk) {
+                            break; // Try next rule
+                        }
+                    }
+
+                    JsonNode exceptions = rule.path("exceptions");
+                    if (!exceptions.isMissingNode()) {
+                        boolean domainOk;
+                        var domains = exceptions.path("domains");
+                        if (domains.isMissingNode()) {
+                            domainOk = true; // No domains list means we're fine no matter what
+                        } else {
+                            domainOk = false; // With a list, we might have a problem and need to be sure
+                            String sourceUrl = route.request().frame().url();
+                            for (var domain : domains) {
+                                if (sourceUrl.contains(domain.asText())) {
+                                    domainOk = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!domainOk) {
+                            return true; // Both need to be ok, so we can skip doing the type check if domain isn't
+                        }
+
+                        boolean typeOk;
+                        JsonNode types = exceptions.path("types");
+                        if (types.isMissingNode()) {
+                            typeOk = true; // No types list means we're fine no matter what
+                        } else {
+                            typeOk = false; // With a list, we might have a problem and need to be sure
+                            String requestType = route.request().resourceType();
+                            for (var type : types) {
+                                if (requestType.equals(type.asText())) {
+                                    typeOk = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (domainOk && typeOk) {
+                            return false; 
+                        }
+                    }
+
+                    return true; // At this point there's no action and no exception, so the rule works and we block
+                }
+            }
+        }
+
+        if (trackersEntry.path("default").asText().equals("block")) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private boolean shouldThrow(int status) {
+        switch (properties.getThrowOn()) { // Based on the property, an exception should be thrown when...
+            case NOT_SUCCESS: return status < 200 || status > 299; // ...the status is not a success
+            case CLIENT_ERROR: return status >= 400 && status <= 499; // ...the status is a client error only
+            case SERVER_ERROR: return status >= 500 && status <= 599; // ...the status is a server error only
+            case CLIENT_OR_SERVER_ERROR: return status >= 400 && status <= 599; // ...the status is a client or server error
+            default: return false;
+        }
     }
 }

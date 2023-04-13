@@ -6,8 +6,6 @@ services:
     environment:
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_BROKER_ID: '1'
-      KAFKA_CFG_SOCKET_REQUEST_MAX_BYTES: '200000000'
-      KAFKA_CFG_MAX_MESSAGE_BYTES: '200000000'
     # KRaft settings
       KAFKA_ENABLE_KRAFT: 'yes'
       KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
@@ -36,7 +34,7 @@ services:
     - '3306:3306'
     volumes:
     # Files put in the sql/ directory of this repo will be executed on container startup
-    - './sql:/docker-entrypoint-initdb.d:ro'
+    - './deploy/sql:/docker-entrypoint-initdb.d:ro'
     environment:
       MARIADB_ROOT_PASSWORD: 'root' # Super insecure, but this is just for dev use
       MARIADB_DATABASE: 'jds'
@@ -46,7 +44,6 @@ services:
     depends_on:
     - 'db'
     ports:
-    - '8080:8080'
+    - '8082:8080'
     environment:
       ADMINER_DESIGN: 'dracula'
-
