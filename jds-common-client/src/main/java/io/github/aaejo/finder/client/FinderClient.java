@@ -33,6 +33,8 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Response;
 import com.microsoft.playwright.Route;
+import com.microsoft.playwright.Browser.NewContextOptions;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
 import com.microsoft.playwright.options.WaitUntilState;
 
 import crawlercommons.filters.URLFilter;
@@ -525,7 +527,9 @@ public class FinderClient {
      * @throws Exception
      */
     private FinderClientResponse playwrightGet(URI url) throws Exception {
-        try (BrowserContext context = browser.newContext(); Page page = context.newPage()) {
+        try (BrowserContext context = browser
+                .newContext(new NewContextOptions().setServiceWorkers(ServiceWorkerPolicy.BLOCK));
+                Page page = context.newPage()) {
             page.route("**/*", route -> {
                 if (StringUtils.equalsAny(route.request().resourceType(), "image", "media"))
                     route.abort();

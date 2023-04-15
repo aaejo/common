@@ -11,7 +11,7 @@
 
 	<groupId>io.github.aaejo</groupId>
 	<artifactId>jds-common-client</artifactId>
-	<version>3.0.0</version>
+	<version>3.0.1</version>
 	<name>jds-common-client</name>
 
 	<dependencyManagement>
