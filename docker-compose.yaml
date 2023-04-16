@@ -2,7 +2,7 @@ name: journal-database-slurp
 services:
 # Application Components
   institution-finder-us:
-    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    image: 'ghcr.io/aaejo/institution-finder:1.1.0'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
       SERVER_SERVLET_CONTEXTPATH: '/us'
@@ -13,7 +13,7 @@ services:
     - kafka-2
     - kafka-3
   institution-finder-canada:
-    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    image: 'ghcr.io/aaejo/institution-finder:1.1.0'
     volumes:
     - './deploy/institutions-data/:/opt/jds/data/:ro'
     environment:
@@ -25,7 +25,7 @@ services:
     - kafka-2
     - kafka-3
   institution-finder-uk:
-    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    image: 'ghcr.io/aaejo/institution-finder:1.1.0'
     volumes:
     - './deploy/institutions-data/:/opt/jds/data/:ro'
     environment:
@@ -37,7 +37,7 @@ services:
     - kafka-2
     - kafka-3
   institution-finder-australia:
-    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    image: 'ghcr.io/aaejo/institution-finder:1.1.0'
     volumes:
     - './deploy/institutions-data/:/opt/jds/data/:ro'
     environment:
@@ -49,7 +49,7 @@ services:
     - kafka-2
     - kafka-3
   institution-finder-new-zealand:
-    image: 'ghcr.io/aaejo/institution-finder:1.0.0'
+    image: 'ghcr.io/aaejo/institution-finder:1.1.0'
     volumes:
     - './deploy/institutions-data/:/opt/jds/data/:ro'
     environment:
@@ -61,7 +61,7 @@ services:
     - kafka-2
     - kafka-3
   profile-finder:
-    image: 'ghcr.io/aaejo/profile-finder:1.0.0'
+    image: 'ghcr.io/aaejo/profile-finder:1.1.0'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
     depends_on:
@@ -69,7 +69,7 @@ services:
     - kafka-2
     - kafka-3
   profile-scraper:
-    image: 'ghcr.io/aaejo/profile-scraper:1.0.1'
+    image: 'ghcr.io/aaejo/profile-scraper:1.1.0'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
       SPRING_KAFKA_CONSUMER_PROPERTIES_MAX_POLL_INTERVAL_MS: '1800000'
@@ -78,7 +78,7 @@ services:
     - kafka-2
     - kafka-3
   manual-intervention:
-    image: 'ghcr.io/aaejo/manual-intervention:1.0.0'
+    image: 'ghcr.io/aaejo/manual-intervention:1.0.1'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
     depends_on:
@@ -86,7 +86,7 @@ services:
     - kafka-2
     - kafka-3
   reviewers-sink:
-    image: 'ghcr.io/aaejo/reviewers-sink:1.0.0'
+    image: 'ghcr.io/aaejo/reviewers-sink:1.1.0'
     environment:
       SPRING_DATASOURCE_URL: 'jdbc:mariadb://db:3306/jds'
       SPRING_DATASOURCE_USERNAME: 'jds'
@@ -118,11 +118,11 @@ services:
     depends_on:
     - db
   dashboard:
-    image: 'ghcr.io/aaejo/dashboard:1.0.0'
+    image: 'ghcr.io/aaejo/dashboard:1.0.1'
     volumes:
     - './deploy/nginx/gateway.conf:/etc/nginx/conf.d/app/gateway.conf:ro'
     ports:
-    - '8000:80'
+    - '8000:8000'
     depends_on:
     - institution-finder-us
     - institution-finder-canada
@@ -141,6 +141,7 @@ services:
     environment:
       KAFKA_BROKER_ID: '1'
       KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: '2'
+      KAFKA_CFG_LOG_RETENTION_MS: '-1'
     # KRaft settings
       KAFKA_ENABLE_KRAFT: 'yes'
       KAFKA_KRAFT_CLUSTER_ID: 'yUnOvYJWSqSVJBlorCAVpg' # Generated with kafka-storage.sh random-uuid
@@ -161,6 +162,7 @@ services:
     environment:
       KAFKA_BROKER_ID: '2'
       KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: '2'
+      KAFKA_CFG_LOG_RETENTION_MS: '-1'
     # KRaft settings
       KAFKA_ENABLE_KRAFT: 'yes'
       KAFKA_KRAFT_CLUSTER_ID: 'yUnOvYJWSqSVJBlorCAVpg' # Generated with kafka-storage.sh random-uuid
@@ -181,6 +183,7 @@ services:
     environment:
       KAFKA_BROKER_ID: '3'
       KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: '2'
+      KAFKA_CFG_LOG_RETENTION_MS: '-1'
     # KRaft settings
       KAFKA_ENABLE_KRAFT: 'yes'
       KAFKA_KRAFT_CLUSTER_ID: 'yUnOvYJWSqSVJBlorCAVpg' # Generated with kafka-storage.sh random-uuid
