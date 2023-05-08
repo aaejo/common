@@ -72,7 +72,6 @@ services:
     image: 'ghcr.io/aaejo/profile-scraper:1.1.0'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
-      SPRING_KAFKA_CONSUMER_PROPERTIES_MAX_POLL_INTERVAL_MS: '1800000'
     depends_on:
     - kafka-1
     - kafka-2
