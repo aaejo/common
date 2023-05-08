@@ -61,7 +61,7 @@ services:
     - kafka-2
     - kafka-3
   profile-finder:
-    image: 'ghcr.io/aaejo/profile-finder:1.1.0'
+    image: 'ghcr.io/aaejo/profile-finder:1.1.1'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: 'kafka-1:9092,kafka-2:9092,kafka-3:9092'
     depends_on:
@@ -86,7 +86,7 @@ services:
     - kafka-2
     - kafka-3
   reviewers-sink:
-    image: 'ghcr.io/aaejo/reviewers-sink:1.1.0'
+    image: 'ghcr.io/aaejo/reviewers-sink:1.1.1'
     environment:
       SPRING_DATASOURCE_URL: 'jdbc:mariadb://db:3306/jds'
       SPRING_DATASOURCE_USERNAME: 'jds'
